@@ -3,13 +3,25 @@ import math
 
 #-------------------------------------------------------------------------
 # Define the Global Variables
+
 N = 3                                                                       # Hidden States
 M = 4                                                                       # Observational Symbols
-A_init = np.full((N, N), 1.0/N)                                             # Initialize the A matrix as uniform prior
-B_init = np.full((N, M), 1.0/M)                                             # Initialize the B matrix as uniform prior
-pi_init = np.zeros(N)                                                       # Initialize the hidden state vector
-pi_init[0] = 1                                                              # Set the first hidden state to uniform prior
 
+A_init = np.array([
+    [1/3, 1/3, 1/3],
+    [1/3, 1/3, 1/3],
+    [1/3, 1/3, 1/3]
+
+])
+
+B_init = np.array([
+    [1/4, 1/4, 1/4, 1/4],
+    [1/4, 1/4, 1/4, 1/4],
+    [1/4, 1/4, 1/4, 1/4]
+])
+
+pi_init = np.array([1/3, 1/3, 1/3])
+     
 #-------------------------------------------------------------------------
 # Computes the probability of observing the sequence up to time t with scaling
 def forward(A, B, pi, O):
@@ -112,13 +124,32 @@ def main():
         O = list(map(int, f.read().split()))
 
     O = O[1:]
-    A, B, pi, log_likelihood = baum_welch(O, N, M, A_init, B_init, pi_init, tol=1e-4, max_iter=50)
+    A, B, pi, log_likelihood = baum_welch(O, N, M, A_init, B_init, pi_init, tol=1e-4, max_iter=10)
 
     print("\nTrained transition matrix A: ", A)
     print("\nTrained emission matrix B: ", B)
     print("\nTrained initial state pi: ", pi)
     print("\nFinal log-likelihood: ", log_likelihood)
 
-# Run
 main()
+
+#-------------------------------------------------------------------------
+'''
+N = 2                                                                      # Hidden States
+M = 4                                                                       # Observational Symbols
+
+# A = 2 x 2
+A_init = np.array([
+    [0.54, 0.26],
+    [0.19, 0.53]
+])
+
+# B = 2 x 3
+B_init = np.array([
+    [0.50, 0.20, 0.11, 0.19],
+    [0.22, 0.28, 0.23, 0.27]
+])
+
+pi_init = np.array([0.30, 0.20])     
+'''                                         
 
