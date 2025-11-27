@@ -5,64 +5,51 @@ import math
 #-------------------------------------------------------------------------
 # Computes the probability of observing the sequence up to time t with scaling
 def forward_algorithm(A, B, pi, observations):
-    N = len(A)        # number of states
+    N = len(A)
     T = len(observations)
 
-    # Alpha table: alpha[t][i]
-    alpha = []
-
-    # ---- 1. INITIALIZATION ----
+    # alpha_prev = alpha[0]
+    alpha_prev = [0.0] * N
     first_obs = observations[0]
-    alpha_t = []
     for i in range(N):
-        value = pi[i] * B[i][first_obs]
-        alpha_t.append(value)
-    alpha.append(alpha_t)
+        alpha_prev[i] = pi[i] * B[i][first_obs]
 
-    # ---- 2. INDUCTION ----
+    # rekursiv
     for t in range(1, T):
         obs = observations[t]
-        alpha_t = []
+        alpha_t = [0.0] * N
 
-        # Compute alpha_t(i) for each state i
         for i in range(N):
-            sum_prev = 0.0
-
-            # sum over all previous states j
+            s = 0.0
             for j in range(N):
-                sum_prev += alpha[t - 1][j] * A[j][i]
+                s += alpha_prev[j] * A[j][i]
+            alpha_t[i] = s * B[i][obs]
 
-            # multiply with emission probability
-            value = sum_prev * B[i][obs]
-            alpha_t.append(value)
+        alpha_prev = alpha_t
 
-        alpha.append(alpha_t)
+    return sum(alpha_prev)
 
-    # ---- 3. TERMINATION ----
-    # Probability of the whole observation sequence
-    final_prob = sum(alpha[T - 1])
-
-    return final_prob
 #-------------------------------------------------------------------------
 # Baum-Welch algorithm
 def baum_welch(A, B, pi, observations, max_iters):
-    N = len(A)          # number of states
-    M = len(B[0])       # number of emission symbols
+    N = len(A)
+    M = len(B[0])
     T = len(observations)
 
     old_log_prob = float("-inf")
 
     for _ in range(max_iters):
-        # ----- 1. FORWARD WITH SCALING -----
-        alpha = [[0.0 for _ in range(N)] for _ in range(T)]
-        c = [0.0 for _ in range(T)]  # scaling coefficients
+        # ---------- 1. FORWARD MIT SCALING ----------
+        alpha = [[0.0] * N for _ in range(T)]
+        c = [0.0] * T
 
-        # Initialization alpha[0]
+        # t = 0
         c0 = 0.0
-        first_obs = observations[0]
+        o0 = observations[0]
         for i in range(N):
-            alpha[0][i] = pi[i] * B[i][first_obs]
-            c0 += alpha[0][i]
+            val = pi[i] * B[i][o0]
+            alpha[0][i] = val
+            c0 += val
 
         if c0 == 0.0:
             c0 = 1e-300
@@ -70,125 +57,126 @@ def baum_welch(A, B, pi, observations, max_iters):
         for i in range(N):
             alpha[0][i] *= c[0]
 
-        # Induction alpha[t]
+        # t >= 1
         for t in range(1, T):
             ct = 0.0
             ot = observations[t]
+            alpha_t = alpha[t]
+            alpha_tm1 = alpha[t-1]
 
             for i in range(N):
-                val = 0.0
+                s = 0.0
+                # sum_j alpha[t-1][j] * A[j][i]
                 for j in range(N):
-                    val += alpha[t - 1][j] * A[j][i]
-                val *= B[i][ot]
-                alpha[t][i] = val
-                ct += val
+                    s += alpha_tm1[j] * A[j][i]
+                s *= B[i][ot]
+                alpha_t[i] = s
+                ct += s
 
             if ct == 0.0:
                 ct = 1e-300
             c[t] = 1.0 / ct
-
             for i in range(N):
-                alpha[t][i] *= c[t]
+                alpha_t[i] *= c[t]
 
-        # ----- 2. BACKWARD WITH SCALING -----
-        beta = [[0.0 for _ in range(N)] for _ in range(T)]
-
-        # Initialization beta[T-1]
+        # ---------- 2. BACKWARD MIT SCALING ----------
+        beta = [[0.0] * N for _ in range(T)]
+        # beta[T-1][i] = c[T-1]
         for i in range(N):
-            beta[T - 1][i] = c[T - 1]
+            beta[T-1][i] = c[T-1]
 
-        # Induction beta[t]
-        for t in range(T - 2, -1, -1):
-            ot1 = observations[t + 1]
+        for t in range(T-2, -1, -1):
+            ot1 = observations[t+1]
+            beta_t = beta[t]
+            beta_tp1 = beta[t+1]
+
             for i in range(N):
-                val = 0.0
+                s = 0.0
+                Ai = A[i]
                 for j in range(N):
-                    val += A[i][j] * B[j][ot1] * beta[t + 1][j]
-                beta[t][i] = val * c[t]
+                    s += Ai[j] * B[j][ot1] * beta_tp1[j]
+                beta_t[i] = s * c[t]
 
-        # ----- 3. GAMMA UND DIGAMMA BERECHNEN -----
-        gamma = [[0.0 for _ in range(N)] for _ in range(T)]
-        # digamma[t][i][j]
-        digamma = [[[0.0 for _ in range(N)] for _ in range(N)] for _ in range(T - 1)]
+        # ---------- 3. GAMMA BERECHNEN & ZÄHLER/NENNER AUFBAUEN ----------
 
-        for t in range(T - 1):
+        # neue Parameter-Zähler initialisieren
+        pi_new = [0.0] * N
+        A_num = [[0.0] * N for _ in range(N)]
+        A_den = [0.0] * N
+        B_num = [[0.0] * M for _ in range(N)]
+        B_den = [0.0] * N
+
+        # t = 0 .. T-2: gamma(i,j) & gamma(i)
+        for t in range(T-1):
+            ot = observations[t]
+            if t < T-1:
+                ot1 = observations[t+1]
+
+            # Nenner für gamma(i,j)
             denom = 0.0
-            ot1 = observations[t + 1]
-
-            # Denominator für Normierung
             for i in range(N):
                 for j in range(N):
-                    denom += alpha[t][i] * A[i][j] * B[j][ot1] * beta[t + 1][j]
-
+                    denom += alpha[t][i] * A[i][j] * B[j][ot1] * beta[t+1][j]
             if denom == 0.0:
                 denom = 1e-300
 
             for i in range(N):
-                gamma_sum_i = 0.0
+                gamma_i = 0.0
                 for j in range(N):
-                    val = alpha[t][i] * A[i][j] * B[j][ot1] * beta[t + 1][j] / denom
-                    digamma[t][i][j] = val
-                    gamma_sum_i += val
-                gamma[t][i] = gamma_sum_i
+                    val = alpha[t][i] * A[i][j] * B[j][ot1] * beta[t+1][j] / denom
+                    gamma_i += val
 
-        # Letzte Gamma-Zeile (T-1) nur aus alpha
-        denom_last = 0.0
-        for i in range(N):
-            denom_last += alpha[T - 1][i]
+                    # A-Zähler
+                    if t < T-1:
+                        A_num[i][j] += val
+
+                # A-Nenner: nur bis T-2
+                if t < T-1:
+                    A_den[i] += gamma_i
+
+                # B: t zählt immer in den Nenner, Beobachtung ot in den Zähler
+                B_den[i] += gamma_i
+                B_num[i][ot] += gamma_i
+
+                # π aus gamma_0
+                if t == 0:
+                    pi_new[i] = gamma_i
+
+        # Speziell gamma(T-1): nur aus alpha
+        denom_last = sum(alpha[T-1])
         if denom_last == 0.0:
             denom_last = 1e-300
         for i in range(N):
-            gamma[T - 1][i] = alpha[T - 1][i] / denom_last
+            gamma_last = alpha[T-1][i] / denom_last
+            B_den[i] += gamma_last
+            B_num[i][observations[T-1]] += gamma_last
 
-        # ----- 4. RE-ESTIMATE pi, A, B -----
+        # ---------- 4. RE-ESTIMATE π, A, B ----------
 
         # pi
         for i in range(N):
-            pi[i] = gamma[0][i]
+            pi[i] = pi_new[i]
 
         # A
         for i in range(N):
-            denom = 0.0
-            for t in range(T - 1):
-                denom += gamma[t][i]
-
+            denom = A_den[i] if A_den[i] != 0.0 else 1e-300
             for j in range(N):
-                numer = 0.0
-                for t in range(T - 1):
-                    numer += digamma[t][i][j]
-
-                if denom == 0.0:
-                    A[i][j] = 0.0
-                else:
-                    A[i][j] = numer / denom
+                A[i][j] = A_num[i][j] / denom
 
         # B
         for i in range(N):
-            denom = 0.0
-            for t in range(T):
-                denom += gamma[t][i]
-
+            denom = B_den[i] if B_den[i] != 0.0 else 1e-300
             for k in range(M):
-                numer = 0.0
-                for t in range(T):
-                    if observations[t] == k:
-                        numer += gamma[t][i]
+                B[i][k] = B_num[i][k] / denom
 
-                if denom == 0.0:
-                    B[i][k] = 0.0
-                else:
-                    B[i][k] = numer / denom
-
-        # ----- 5. LOG-LIKELIHOOD BERECHNEN UND KONVERGENZ PRÜFEN -----
+        # ---------- 5. LOG-LIKELIHOOD ----------
         log_prob = 0.0
         for t in range(T):
             log_prob += math.log(c[t])
         log_prob = -log_prob
 
-        # Abbruch, wenn sich Log-Likelihood nicht mehr verbessert
-        if log_prob <= old_log_prob + 1e-6:
+        if log_prob <= old_log_prob + 1e-3:
             break
-
         old_log_prob = log_prob
 
     return A, B, pi, log_prob

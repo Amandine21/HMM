@@ -48,6 +48,8 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         # Observation lists for each fish
         self.fish_obs = [[] for _ in range(N_FISH)]
 
+        self.train_count = [0] * N_SPECIES
+
         self.done = [False]*N_FISH
 
     # -----------------------------------------------------------
@@ -80,6 +82,11 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
             best_race = None        # I swear I'm not racist
             best_fish = None
 
+            seq = self.fish_obs[fish]
+
+            if len(seq) < 5:
+                continue
+
             for species_id in range(N_SPECIES):
                 model = self.models[species_id]
                 
@@ -87,7 +94,7 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
                 B = model["B"]
                 pi = model["pi"]
 
-                prob = fn.forward_algorithm(A, B, pi, observations)
+                prob = fn.forward_algorithm(A, B, pi, seq)
                 #Run the fcking forward algorithim with model with all fish
 
                 if(prob > max_prob):
@@ -96,6 +103,9 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         
         elapsed = time.time() - start
         print(f"[DEBUG] step {step} guess took {elapsed:.4f} s", file=sys.stderr)
+
+        if best_fish is None:
+            return None
                 
         return best_fish, best_race
 
@@ -118,9 +128,15 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         # Full observation sequence of this fish
         seq = self.fish_obs[fish_id]
 
+        train_seq = seq[-30:] if len(seq) > 30 else seq
+
+
         # If sequence is too short, don't bother training
-        if len(seq) < 5:
-            return
+        # if len(seq) < 15:
+        #     return
+        
+        if self.train_count[true_type] >= 3:
+                return
 
         # Get current model for this species
         model = self.models[true_type]
@@ -132,15 +148,17 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
 
         # Train/refine HMM for this species with Baum–Welch
         start = time.time()
-        A_new, B_new, pi_new, log_likelihood = fn.baum_welch(A, B, pi, seq, 100)
+        A_new, B_new, pi_new, log_likelihood = fn.baum_welch(A, B, pi, train_seq, 5)
         elapsed = time.time() - start
-        print(f"[DEBUG] training species {true_type} with len(seq)={len(seq)} took {elapsed:.4f} s", file=sys.stderr)
+        print(f"[DEBUG] training species {true_type} with len(seq)={len(train_seq)} took {elapsed:.4f} s", file=sys.stderr)
 
         # Save updated parameters
         model["A"] = A_new
         model["B"] = B_new
         model["pi"] = pi_new
         model["trained"] = True
+        self.train_count[true_type] += 1
+
 
         return
 
