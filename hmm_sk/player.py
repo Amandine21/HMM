@@ -39,11 +39,9 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
                 "A": A_copy,
                 "B": B_copy,
                 "pi": pi_copy,
-                "trained": False
             }
 
             self.models.append(model)
-
 
         # Observation lists for each fish
         self.fish_obs = [[] for _ in range(N_FISH)]
@@ -62,10 +60,14 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         :return: None or a tuple (fish_id, fish_type)
         """
 
-        start = time.time()
 
-        best_race = None
+        best_prob = float('-inf')
+        best_race = None        # I swear I'm not racist
         best_fish = None
+
+
+        if(step < 40):
+            return
 
         # Append the new observations that were made for each fish!!!!
         for fish in range(N_FISH):
@@ -76,10 +78,6 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
     
             # Now we need to check each trained species
 
-            max_prob = float('-inf')
-            best_race = None        # I swear I'm not racist
-            best_fish = None
-
             for species_id in range(N_SPECIES):
                 model = self.models[species_id]
                 
@@ -87,15 +85,14 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
                 B = model["B"]
                 pi = model["pi"]
 
-                prob = fn.forward_algorithm(A, B, pi, observations)
+                prob = fn.forward_algorithm(A, B, pi, self.fish_obs[fish])
                 #Run the fcking forward algorithim with model with all fish
 
-                if(prob > max_prob):
+                if(prob > best_prob):
+                    best_prob = prob
                     best_race = species_id
                     best_fish = fish
-        
-        elapsed = time.time() - start
-        print(f"[DEBUG] step {step} guess took {elapsed:.4f} s", file=sys.stderr)
+
                 
         return best_fish, best_race
 
@@ -125,22 +122,18 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         # Get current model for this species
         model = self.models[true_type]
 
-        # (Optional) copy to avoid modifying in place during training
         A = [row[:] for row in model["A"]]
         B = [row[:] for row in model["B"]]
         pi = model["pi"][:]
 
         # Train/refine HMM for this species with Baum–Welch
-        start = time.time()
-        A_new, B_new, pi_new, log_likelihood = fn.baum_welch(A, B, pi, seq, 100)
-        elapsed = time.time() - start
-        print(f"[DEBUG] training species {true_type} with len(seq)={len(seq)} took {elapsed:.4f} s", file=sys.stderr)
+                    
+        A_new, B_new, pi_new, log_likelihood = fn.baum_welch(A, B, pi, seq, 5)
 
         # Save updated parameters
         model["A"] = A_new
         model["B"] = B_new
         model["pi"] = pi_new
-        model["trained"] = True
 
         return
 

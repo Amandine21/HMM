@@ -4,45 +4,70 @@ import math
      
 #-------------------------------------------------------------------------
 # Computes the probability of observing the sequence up to time t with scaling
+
+import math
+
+#-------------------------------------------------------------------------
+# Computes the log-probability of observing the sequence with scaling (numerical stability)
 def forward_algorithm(A, B, pi, observations):
     N = len(A)        # number of states
     T = len(observations)
+    
+    # Alpha table: alpha[t][i] (scaled)
+    alpha = [[0.0 for _ in range(N)] for _ in range(T)]
+    c = [0.0 for _ in range(T)]  # scaling coefficients
 
-    # Alpha table: alpha[t][i]
-    alpha = []
-
-    # ---- 1. INITIALIZATION ----
+    # ---- 1. INITIALIZATION (Scaled) ----
+    c0 = 0.0
     first_obs = observations[0]
-    alpha_t = []
     for i in range(N):
-        value = pi[i] * B[i][first_obs]
-        alpha_t.append(value)
-    alpha.append(alpha_t)
+        alpha[0][i] = pi[i] * B[i][first_obs]
+        c0 += alpha[0][i]
 
-    # ---- 2. INDUCTION ----
+    # Handle underflow/zero probability
+    if c0 == 0.0:
+        c0 = 1e-300
+    c[0] = 1.0 / c0
+    for i in range(N):
+        alpha[0][i] *= c[0]
+
+    # ---- 2. INDUCTION (Scaled) ----
     for t in range(1, T):
-        obs = observations[t]
-        alpha_t = []
+        ct = 0.0
+        ot = observations[t]
 
-        # Compute alpha_t(i) for each state i
         for i in range(N):
-            sum_prev = 0.0
-
+            val = 0.0
             # sum over all previous states j
             for j in range(N):
-                sum_prev += alpha[t - 1][j] * A[j][i]
-
+                val += alpha[t - 1][j] * A[j][i]
+            
             # multiply with emission probability
-            value = sum_prev * B[i][obs]
-            alpha_t.append(value)
+            val *= B[i][ot]
+            alpha[t][i] = val
+            ct += val
 
-        alpha.append(alpha_t)
+        # Handle underflow/zero probability
+        if ct == 0.0:
+            ct = 1e-300
+        c[t] = 1.0 / ct
 
-    # ---- 3. TERMINATION ----
-    # Probability of the whole observation sequence
-    final_prob = sum(alpha[T - 1])
+        # Scale alpha[t]
+        for i in range(N):
+            alpha[t][i] *= c[t]
 
-    return final_prob
+    # ---- 3. TERMINATION (Log-Probability) ----
+    # log P(O|lambda) = - sum(log(c[t]))
+    # This is a numerically stable value.
+    log_prob = 0.0
+    for t in range(T):
+        # We must ensure c[t] is never zero for the log calculation
+        log_prob += math.log(max(c[t], 1e-300))
+    
+    # The sum of logs of the scaling factors yields the log-likelihood
+    # Note: Less negative log_prob is "better" (higher probability).
+    return -log_prob
+
 #-------------------------------------------------------------------------
 # Baum-Welch algorithm
 def baum_welch(A, B, pi, observations, max_iters):
