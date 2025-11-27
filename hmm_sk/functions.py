@@ -1,26 +1,6 @@
-import numpy as np
 import math
 
-#-------------------------------------------------------------------------
-# Define the Global Variables
 
-N = 3                                                                       # Hidden States
-M = 4                                                                       # Observational Symbols
-
-A_init = np.array([
-    [1/3, 1/3, 1/3],
-    [1/3, 1/3, 1/3],
-    [1/3, 1/3, 1/3]
-
-])
-
-B_init = np.array([
-    [1/4, 1/4, 1/4, 1/4],
-    [1/4, 1/4, 1/4, 1/4],
-    [1/4, 1/4, 1/4, 1/4]
-])
-
-pi_init = np.array([1/3, 1/3, 1/3])
      
 #-------------------------------------------------------------------------
 # Computes the probability of observing the sequence up to time t with scaling
@@ -65,7 +45,7 @@ def forward_algorithm(A, B, pi, observations):
     return final_prob
 #-------------------------------------------------------------------------
 # Baum-Welch algorithm
-def baum_welch(A, B, pi, observations, max_iters=100):
+def baum_welch(A, B, pi, observations, max_iters):
     N = len(A)          # number of states
     M = len(B[0])       # number of emission symbols
     T = len(observations)

@@ -1,7 +1,8 @@
 from player_controller_hmm import PlayerControllerHMMAbstract
 from constants import *
 import functions as fn 
-import random
+import sys
+import time
 
 
 class PlayerControllerHMM(PlayerControllerHMMAbstract):
@@ -61,6 +62,8 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         :return: None or a tuple (fish_id, fish_type)
         """
 
+        start = time.time()
+
         best_race = None
         best_fish = None
 
@@ -80,12 +83,19 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
             for species_id in range(N_SPECIES):
                 model = self.models[species_id]
                 
-                #Run the fcking forward algorithim with model with all fish
-                final_prob = fn.forward_algorithm(self.models["A"], self.models["B"], self.models["pi"], observations)
+                A = model["A"]
+                B = model["B"]
+                pi = model["pi"]
 
-                if(final_prob > max_prob):
+                prob = fn.forward_algorithm(A, B, pi, observations)
+                #Run the fcking forward algorithim with model with all fish
+
+                if(prob > max_prob):
                     best_race = species_id
                     best_fish = fish
+        
+        elapsed = time.time() - start
+        print(f"[DEBUG] step {step} guess took {elapsed:.4f} s", file=sys.stderr)
                 
         return best_fish, best_race
 
@@ -102,27 +112,38 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         :return:
         """
 
-        # This fish will not produce more data, so that mark in the sequence will be complete
+        # This fish will not produce more data
         self.done[fish_id] = True
 
-        # Storing the fish sequence over time as the game progresse
+        # Full observation sequence of this fish
         seq = self.fish_obs[fish_id]
 
-        # This will validate if the deque
+        # If sequence is too short, don't bother training
         if len(seq) < 5:
             return
 
-        # Train the correct species HMM with Baum-Welch
-        A, B, pi, log_liklihood = fn.baum_welch(seq, self.N, self.M, self.A_o, self.B_o, self.pi_o, tol=1e-4, max_iter=100)
-
-        # Save the Train models into a dictionary!!!!
+        # Get current model for this species
         model = self.models[true_type]
-        model["A"] = A
-        model["B"] = B
-        model["pi"] = pi
+
+        # (Optional) copy to avoid modifying in place during training
+        A = [row[:] for row in model["A"]]
+        B = [row[:] for row in model["B"]]
+        pi = model["pi"][:]
+
+        # Train/refine HMM for this species with Baum–Welch
+        start = time.time()
+        A_new, B_new, pi_new, log_likelihood = fn.baum_welch(A, B, pi, seq, 100)
+        elapsed = time.time() - start
+        print(f"[DEBUG] training species {true_type} with len(seq)={len(seq)} took {elapsed:.4f} s", file=sys.stderr)
+
+        # Save updated parameters
+        model["A"] = A_new
+        model["B"] = B_new
+        model["pi"] = pi_new
         model["trained"] = True
 
         return
+
 
 '''
         self.models = [

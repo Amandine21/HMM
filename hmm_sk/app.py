@@ -179,6 +179,7 @@ class FishingDerbyApp(App, SettingLoader, Communicator):
         """
         msg = {
             "game_over": self.main_widget.game_over
+            #"reason": self.game_over_reason,
         }
         if self.main_widget.game_over:
             self.timer_scheduled.cancel()
@@ -308,6 +309,7 @@ class FishingDerbyHMMApp(FishingDerbyApp, Fishes, PrintScore1Player):
         self.num_fishes = 0
         self.initial_time = None
         self.final_time = None
+        #self.game_over_reason = None 
 
     def update_clock(self, dl):
         super().update_clock(dl)
@@ -331,11 +333,13 @@ class FishingDerbyHMMApp(FishingDerbyApp, Fishes, PrintScore1Player):
         self.final_time = time()
         if 'timeout' in msg and msg['timeout'] or self.final_time - self.initial_time >= self.settings.time_threshold:
             self.main_widget.game_over = True
+            #self.game_over_reason = "step_timeout"
             print('Timeout error!')
             self.correct_guesses = 0
 
         if self.total_guesses == self.num_fishes:
             self.main_widget.game_over = True
+            #self.game_over_reason = "all_fish_guessed"
 
         if self.main_widget.game_over:
             os.kill(self.player_loop.pid, 9)
@@ -369,6 +373,7 @@ class FishingDerbyHMMApp(FishingDerbyApp, Fishes, PrintScore1Player):
             msg_reveal["game_over"] = self.total_guesses == self.num_fishes
             msg_reveal["id"] = fish_id
             msg_reveal["type"] = self.seq_types_fishes[fish_id]
+            #msg_reveal["reason"] = self.game_over_reason
 
         return msg_reveal
 
@@ -387,6 +392,7 @@ class FishingDerbyHMMApp(FishingDerbyApp, Fishes, PrintScore1Player):
             # Check if game is about to timeout
             if self.time >= self.total_time:
                 self.main_widget.game_over = True
+                #self.game_over_reason = "global_timeout"
 
             if self.send_state_or_display_stats() is False:
                 return
