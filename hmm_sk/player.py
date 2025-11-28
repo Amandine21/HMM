@@ -96,7 +96,7 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
    
         self.guess_count += 1
 
-        print(f"Guesses made: {self.guess_count}")
+        #print(f"Guesses made: {self.guess_count}")
 
         return best_fish, best_species
 

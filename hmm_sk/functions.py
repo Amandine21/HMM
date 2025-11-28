@@ -63,15 +63,18 @@ def forward_algorithm(A, B, pi, observations):
 # Baum-Welch mit Scaling (klassisch), leicht bereinigt.
 # Nutzt 2D alpha/beta, weil wir Gamma brauchen.
 # -------------------------------------------------------------------------
+import math
+
 def baum_welch(A, B, pi, observations, max_iters):
     N = len(A)          # number of states
     M = len(B[0])       # number of emission symbols
     T = len(observations)
 
     old_log_prob = float("-inf")
+    eps = 1e-6          # smoothing
 
     for _ in range(max_iters):
-        # ----- 1. FORWARD MIT SCALING -----
+        # ----- 1. FORWARD WITH SCALING -----
         alpha = [[0.0 for _ in range(N)] for _ in range(T)]
         c = [0.0 for _ in range(T)]
 
@@ -107,7 +110,7 @@ def baum_welch(A, B, pi, observations, max_iters):
             for i in range(N):
                 alpha[t][i] *= c[t]
 
-        # ----- 2. BACKWARD MIT SCALING -----
+        # ----- 2. BACKWARD WITH SCALING -----
         beta = [[0.0 for _ in range(N)] for _ in range(T)]
 
         # t = T-1
@@ -154,12 +157,13 @@ def baum_welch(A, B, pi, observations, max_iters):
         for i in range(N):
             gamma[T - 1][i] = alpha[T - 1][i] / denom_last
 
-        # ----- 4. RE-ESTIMATE pi, A, B -----
+        # ----- 4. RE-ESTIMATE pi, A, B (MIT SMOOTHING) -----
+
         # pi
         for i in range(N):
             pi[i] = gamma[0][i]
 
-        # A
+        # A with smoothing
         for i in range(N):
             denom = 0.0
             for t in range(T - 1):
@@ -170,9 +174,9 @@ def baum_welch(A, B, pi, observations, max_iters):
                 for t in range(T - 1):
                     numer += digamma[t][i][j]
 
-                A[i][j] = 0.0 if denom == 0.0 else numer / denom
+                A[i][j] = (numer + eps) / (denom + eps * N)
 
-        # B
+        # B with smoothing
         for i in range(N):
             denom = 0.0
             for t in range(T):
@@ -184,7 +188,7 @@ def baum_welch(A, B, pi, observations, max_iters):
                     if observations[t] == k:
                         numer += gamma[t][i]
 
-                B[i][k] = 0.0 if denom == 0.0 else numer / denom
+                B[i][k] = (numer + eps) / (denom + eps * M)
 
         # ----- 5. LOG-LIKELIHOOD + KONVERGENZ -----
         log_prob = 0.0
@@ -192,7 +196,6 @@ def baum_welch(A, B, pi, observations, max_iters):
             log_prob += math.log(c[t])
         log_prob = -log_prob
 
-        # Toleranz etwas lockerer, damit wir früher abbrechen
         if log_prob <= old_log_prob + 1e-3:
             break
 
