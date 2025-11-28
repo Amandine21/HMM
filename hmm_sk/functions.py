@@ -1,75 +1,68 @@
+# functions.py
 import math
 
-
-     
-#-------------------------------------------------------------------------
-# Computes the probability of observing the sequence up to time t with scaling
-
-import math
-
-#-------------------------------------------------------------------------
-# Computes the log-probability of observing the sequence with scaling (numerical stability)
+# -------------------------------------------------------------------------
+# Forward-Algorithmus mit Scaling, gibt log P(O | λ) zurück.
+# Optimiert für das Guessing (nur 1D-alpha, keine große Matrix).
+# -------------------------------------------------------------------------
 def forward_algorithm(A, B, pi, observations):
-    N = len(A)        # number of states
+    N = len(A)
     T = len(observations)
-    
-    # Alpha table: alpha[t][i] (scaled)
-    alpha = [[0.0 for _ in range(N)] for _ in range(T)]
-    c = [0.0 for _ in range(T)]  # scaling coefficients
 
-    # ---- 1. INITIALIZATION (Scaled) ----
-    c0 = 0.0
-    first_obs = observations[0]
+    # alpha[t] only stored for one step (memory optimal)
+    alpha = [0.0] * N
+    c = [0.0] * T
+
+    # --- t = 0 ---
+    o0 = observations[0]
+    scale = 0.0
     for i in range(N):
-        alpha[0][i] = pi[i] * B[i][first_obs]
-        c0 += alpha[0][i]
+        alpha[i] = pi[i] * B[i][o0]
+        scale += alpha[i]
 
-    # Handle underflow/zero probability
-    if c0 == 0.0:
-        c0 = 1e-300
-    c[0] = 1.0 / c0
+    if scale < 1e-300:
+        scale = 1e-300
+
+    c[0] = 1.0 / scale
     for i in range(N):
-        alpha[0][i] *= c[0]
+        alpha[i] *= c[0]
 
-    # ---- 2. INDUCTION (Scaled) ----
+    # --- t = 1 ... T-1 ---
     for t in range(1, T):
-        ct = 0.0
         ot = observations[t]
+        new_alpha = [0.0] * N
+        scale = 0.0
 
         for i in range(N):
-            val = 0.0
-            # sum over all previous states j
+            s = 0.0
             for j in range(N):
-                val += alpha[t - 1][j] * A[j][i]
-            
-            # multiply with emission probability
-            val *= B[i][ot]
-            alpha[t][i] = val
-            ct += val
+                s += alpha[j] * A[j][i]
+            s *= B[i][ot]
+            new_alpha[i] = s
+            scale += s
 
-        # Handle underflow/zero probability
-        if ct == 0.0:
-            ct = 1e-300
-        c[t] = 1.0 / ct
+        if scale < 1e-300:
+            scale = 1e-300
 
-        # Scale alpha[t]
+        c[t] = 1.0 / scale
         for i in range(N):
-            alpha[t][i] *= c[t]
+            new_alpha[i] *= c[t]
 
-    # ---- 3. TERMINATION (Log-Probability) ----
-    # log P(O|lambda) = - sum(log(c[t]))
-    # This is a numerically stable value.
+        alpha = new_alpha
+
+    # --- final log-likelihood ---
     log_prob = 0.0
     for t in range(T):
-        # We must ensure c[t] is never zero for the log calculation
-        log_prob += math.log(max(c[t], 1e-300))
-    
-    # The sum of logs of the scaling factors yields the log-likelihood
-    # Note: Less negative log_prob is "better" (higher probability).
+        log_prob += math.log(c[t])
+
     return -log_prob
 
-#-------------------------------------------------------------------------
-# Baum-Welch algorithm
+
+
+# -------------------------------------------------------------------------
+# Baum-Welch mit Scaling (klassisch), leicht bereinigt.
+# Nutzt 2D alpha/beta, weil wir Gamma brauchen.
+# -------------------------------------------------------------------------
 def baum_welch(A, B, pi, observations, max_iters):
     N = len(A)          # number of states
     M = len(B[0])       # number of emission symbols
@@ -78,11 +71,11 @@ def baum_welch(A, B, pi, observations, max_iters):
     old_log_prob = float("-inf")
 
     for _ in range(max_iters):
-        # ----- 1. FORWARD WITH SCALING -----
+        # ----- 1. FORWARD MIT SCALING -----
         alpha = [[0.0 for _ in range(N)] for _ in range(T)]
-        c = [0.0 for _ in range(T)]  # scaling coefficients
+        c = [0.0 for _ in range(T)]
 
-        # Initialization alpha[0]
+        # t = 0
         c0 = 0.0
         first_obs = observations[0]
         for i in range(N):
@@ -95,7 +88,7 @@ def baum_welch(A, B, pi, observations, max_iters):
         for i in range(N):
             alpha[0][i] *= c[0]
 
-        # Induction alpha[t]
+        # t = 1..T-1
         for t in range(1, T):
             ct = 0.0
             ot = observations[t]
@@ -111,18 +104,17 @@ def baum_welch(A, B, pi, observations, max_iters):
             if ct == 0.0:
                 ct = 1e-300
             c[t] = 1.0 / ct
-
             for i in range(N):
                 alpha[t][i] *= c[t]
 
-        # ----- 2. BACKWARD WITH SCALING -----
+        # ----- 2. BACKWARD MIT SCALING -----
         beta = [[0.0 for _ in range(N)] for _ in range(T)]
 
-        # Initialization beta[T-1]
+        # t = T-1
         for i in range(N):
             beta[T - 1][i] = c[T - 1]
 
-        # Induction beta[t]
+        # t = T-2..0
         for t in range(T - 2, -1, -1):
             ot1 = observations[t + 1]
             for i in range(N):
@@ -131,16 +123,14 @@ def baum_welch(A, B, pi, observations, max_iters):
                     val += A[i][j] * B[j][ot1] * beta[t + 1][j]
                 beta[t][i] = val * c[t]
 
-        # ----- 3. GAMMA UND DIGAMMA BERECHNEN -----
+        # ----- 3. GAMMA UND DIGAMMA -----
         gamma = [[0.0 for _ in range(N)] for _ in range(T)]
-        # digamma[t][i][j]
         digamma = [[[0.0 for _ in range(N)] for _ in range(N)] for _ in range(T - 1)]
 
         for t in range(T - 1):
             denom = 0.0
             ot1 = observations[t + 1]
 
-            # Denominator für Normierung
             for i in range(N):
                 for j in range(N):
                     denom += alpha[t][i] * A[i][j] * B[j][ot1] * beta[t + 1][j]
@@ -151,22 +141,20 @@ def baum_welch(A, B, pi, observations, max_iters):
             for i in range(N):
                 gamma_sum_i = 0.0
                 for j in range(N):
-                    val = alpha[t][i] * A[i][j] * B[j][ot1] * beta[t + 1][j] / denom
+                    val = (alpha[t][i] * A[i][j] *
+                           B[j][ot1] * beta[t + 1][j] / denom)
                     digamma[t][i][j] = val
                     gamma_sum_i += val
                 gamma[t][i] = gamma_sum_i
 
-        # Letzte Gamma-Zeile (T-1) nur aus alpha
-        denom_last = 0.0
-        for i in range(N):
-            denom_last += alpha[T - 1][i]
+        # letztes Gamma nur aus alpha
+        denom_last = sum(alpha[T - 1])
         if denom_last == 0.0:
             denom_last = 1e-300
         for i in range(N):
             gamma[T - 1][i] = alpha[T - 1][i] / denom_last
 
         # ----- 4. RE-ESTIMATE pi, A, B -----
-
         # pi
         for i in range(N):
             pi[i] = gamma[0][i]
@@ -182,10 +170,7 @@ def baum_welch(A, B, pi, observations, max_iters):
                 for t in range(T - 1):
                     numer += digamma[t][i][j]
 
-                if denom == 0.0:
-                    A[i][j] = 0.0
-                else:
-                    A[i][j] = numer / denom
+                A[i][j] = 0.0 if denom == 0.0 else numer / denom
 
         # B
         for i in range(N):
@@ -199,19 +184,16 @@ def baum_welch(A, B, pi, observations, max_iters):
                     if observations[t] == k:
                         numer += gamma[t][i]
 
-                if denom == 0.0:
-                    B[i][k] = 0.0
-                else:
-                    B[i][k] = numer / denom
+                B[i][k] = 0.0 if denom == 0.0 else numer / denom
 
-        # ----- 5. LOG-LIKELIHOOD BERECHNEN UND KONVERGENZ PRÜFEN -----
+        # ----- 5. LOG-LIKELIHOOD + KONVERGENZ -----
         log_prob = 0.0
         for t in range(T):
             log_prob += math.log(c[t])
         log_prob = -log_prob
 
-        # Abbruch, wenn sich Log-Likelihood nicht mehr verbessert
-        if log_prob <= old_log_prob + 1e-6:
+        # Toleranz etwas lockerer, damit wir früher abbrechen
+        if log_prob <= old_log_prob + 1e-3:
             break
 
         old_log_prob = log_prob

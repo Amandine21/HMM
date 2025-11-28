@@ -7,46 +7,42 @@ import time
 
 class PlayerControllerHMM(PlayerControllerHMMAbstract):
     def init_parameters(self):
+        # --- HMM-Grundparameter ---
+        self.N = 3                  # number of hidden states
+        self.M = N_EMISSIONS        # number of emissions
 
-        # Settings
-        self.N = 3                                          # Hidden States   
-        self.M = N_EMISSIONS                                # This the number of Fish Moments
+        # uniforme Startparameter
+        self.A0 = [[1.0 / self.N] * self.N for _ in range(self.N)]
+        self.B0 = [[1.0 / self.M] * self.M for _ in range(self.N)]
+        self.pi0 = [1.0 / self.N] * self.N
 
-        # initial uniform parameters
-        self.A_o = [[1.0/self.N]*self.N for _ in range(self.N)]
-        self.B_o = [[1.0/self.M]*self.M for _ in range(self.N)]
-        self.pi_o = [1.0/self.N]*self.N
-
-        # Loop through each species and iteratete through the models
+        # ein HMM pro Species
         self.models = []
         for _ in range(N_SPECIES):
-            A_copy = []
-            for row in self.A_o:
-                new_row = row[:]        
-                A_copy.append(new_row)
-
-            # Copy B0 into a new matrix B
-            B_copy = []
-            for row in self.B_o:
-                new_row = row[:]       
-                B_copy.append(new_row)
-
-            # Copy pi0
-            pi_copy = self.pi_o[:]      
-
-            # Append model dictionary
-            model = {
+            A_copy = [row[:] for row in self.A0]
+            B_copy = [row[:] for row in self.B0]
+            pi_copy = self.pi0[:]
+            self.models.append({
                 "A": A_copy,
                 "B": B_copy,
                 "pi": pi_copy,
-            }
+            })
 
-            self.models.append(model)
-
-        # Observation lists for each fish
+        # Beobachtungen pro Fisch
         self.fish_obs = [[] for _ in range(N_FISH)]
+        # Fische, die fertig sind (bereits revealed)
+        self.done = [False] * N_FISH
+        # Zähle, wie oft wir pro Species trainiert haben
+        self.train_count = [0] * N_SPECIES
 
-        self.done = [False]*N_FISH
+        self.guess_count = 0
+
+        # Heuristik-Parameter
+        self.MAX_TRAIN_PER_SPECIES = 10  # max. Trainingsläufe pro Species
+        self.MAX_TRAIN_LEN = 180         # nur die letzten K Beobachtungen zum Trainieren nutzen
+        self.BW_MAX_ITERS = 50           # Iterationen für Baum-Welch
+
+
 
     # -----------------------------------------------------------
 
@@ -60,41 +56,49 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         :return: None or a tuple (fish_id, fish_type)
         """
 
+        
+        # nur Daten sammeln
+        for f in range(N_FISH):
+            if not self.done[f]:
+                self.fish_obs[f].append(observations[f])
+
+        # --- Progressive guessing schedule ---
+
+        if step < 110:
+            return None
 
         best_prob = float('-inf')
-        best_race = None        # I swear I'm not racist
         best_fish = None
+        best_species = None
 
-
-        if(step < 40):
-            return
-
-        # Append the new observations that were made for each fish!!!!
-        for fish in range(N_FISH):
-            if self.done[fish]:
+        # Für jeden noch „aktiven“ Fisch Likelihood ausrechnen
+        for f in range(N_FISH):
+            if self.done[f]:
                 continue
-            if not self.done[fish]:
-                self.fish_obs[fish].append(observations[fish])
-    
-            # Now we need to check each trained species
 
+            seq = self.fish_obs[f]
+
+            # Likelihood unter allen Species-HMMs berechnen
             for species_id in range(N_SPECIES):
                 model = self.models[species_id]
-                
-                A = model["A"]
-                B = model["B"]
-                pi = model["pi"]
+                A, B, pi = model["A"], model["B"], model["pi"]
 
-                prob = fn.forward_algorithm(A, B, pi, self.fish_obs[fish])
-                #Run the fcking forward algorithim with model with all fish
+                prob = fn.forward_algorithm(A, B, pi, seq)  # log-Likelihood
 
-                if(prob > best_prob):
+                if prob > best_prob:
                     best_prob = prob
-                    best_race = species_id
-                    best_fish = fish
+                    best_fish = f
+                    best_species = species_id
 
-                
-        return best_fish, best_race
+        # Noch keine sinnvolle Entscheidung möglich
+        if best_fish is None:
+            return None
+   
+        self.guess_count += 1
+
+        print(f"Guesses made: {self.guess_count}")
+
+        return best_fish, best_species
 
     # -----------------------------------------------------------
 
@@ -109,31 +113,39 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         :return:
         """
 
-        # This fish will not produce more data
+        # Dieser Fisch liefert ab jetzt keine neuen Daten mehr
         self.done[fish_id] = True
 
-        # Full observation sequence of this fish
         seq = self.fish_obs[fish_id]
 
-        # If sequence is too short, don't bother training
-        if len(seq) < 5:
+
+        # 2) Pro Species nur ein paar Mal trainieren,
+        #    um Zeit zu sparen
+        if self.train_count[true_type] >= self.MAX_TRAIN_PER_SPECIES:
             return
 
-        # Get current model for this species
-        model = self.models[true_type]
+        # 3) Optional nur die letzten K Beobachtungen verwenden
+        if len(seq) > self.MAX_TRAIN_LEN:
+            train_seq = seq[-self.MAX_TRAIN_LEN:]
+        else:
+            train_seq = seq
 
+        model = self.models[true_type]
         A = [row[:] for row in model["A"]]
         B = [row[:] for row in model["B"]]
         pi = model["pi"][:]
 
-        # Train/refine HMM for this species with Baum–Welch
-                    
-        A_new, B_new, pi_new, log_likelihood = fn.baum_welch(A, B, pi, seq, 5)
+        # Baum-Welch (mit wenigen Iterationen)
+        A_new, B_new, pi_new, _ = fn.baum_welch(
+            A, B, pi, train_seq, self.BW_MAX_ITERS
+        )
 
-        # Save updated parameters
+        # Parameter aktualisieren
         model["A"] = A_new
         model["B"] = B_new
         model["pi"] = pi_new
+
+        self.train_count[true_type] += 1
 
         return
 
