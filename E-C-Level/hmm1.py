@@ -34,6 +34,7 @@ def forward_algorithm(A, B, pi, observations):
         value = pi[i] * B[i][first_obs]
         alpha_t.append(value)
     alpha.append(alpha_t)
+    print(f"First alpha = {alpha_t}")
 
     # ---- 2. INDUCTION ----
     for t in range(1, T):
@@ -53,9 +54,11 @@ def forward_algorithm(A, B, pi, observations):
             alpha_t.append(value)
 
         alpha.append(alpha_t)
+        print(f"Alpha {t} = {alpha_t}")
 
     # ---- 3. TERMINATION ----
     # Probability of the whole observation sequence
+    #print(f"Alpha list = {alpha}")
     final_prob = sum(alpha[T - 1])
 
     return final_prob
@@ -72,6 +75,8 @@ def main():
     parts = input().strip().split()
     T = int(parts[0])
     observations = list(map(int, parts[1:]))
+
+    print(f"observations = {observations}")
 
     # Run forward algorithm
     result = forward_algorithm(A, B, pi, observations)

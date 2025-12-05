@@ -1,4 +1,5 @@
 import math
+import matplotlib.pyplot as plt
 
 
 def read_matrix():
@@ -24,6 +25,21 @@ def read_matrix():
     return matrix
 
 
+def avg_abs_diff_vector(v_old, v_new):
+    n = len(v_old)
+    return sum(abs(v_old[i] - v_new[i]) for i in range(n)) / n
+
+
+def avg_abs_diff_matrix(M_old, M_new):
+    rows = len(M_old)
+    cols = len(M_old[0])
+    total = 0.0
+    for i in range(rows):
+        for j in range(cols):
+            total += abs(M_old[i][j] - M_new[i][j])
+    return total / (rows * cols)
+
+
 def baum_welch(A, B, pi, observations, max_iters=100):
     N = len(A)          # number of states
     M = len(B[0])       # number of emission symbols
@@ -31,7 +47,12 @@ def baum_welch(A, B, pi, observations, max_iters=100):
 
     old_log_prob = float("-inf")
 
-    for _ in range(max_iters):
+    # histories for convergence plot
+    delta_pi_hist = []
+    delta_A_hist = []
+    delta_B_hist = []
+
+    for iter in range(max_iters):
         # ----- 1. FORWARD WITH SCALING -----
         alpha = [[0.0 for _ in range(N)] for _ in range(T)]
         c = [0.0 for _ in range(T)]  # scaling coefficients
@@ -121,6 +142,11 @@ def baum_welch(A, B, pi, observations, max_iters=100):
 
         # ----- 4. RE-ESTIMATE pi, A, B -----
 
+        # store old parameters for convergence plot
+        old_pi = pi[:]                    # copy vector
+        old_A = [row[:] for row in A]     # deep copy
+        old_B = [row[:] for row in B]
+
         # pi
         for i in range(N):
             pi[i] = gamma[0][i]
@@ -158,6 +184,15 @@ def baum_welch(A, B, pi, observations, max_iters=100):
                 else:
                     B[i][k] = numer / denom
 
+        # ----- compute parameter changes for this iteration -----
+        delta_pi = avg_abs_diff_vector(old_pi, pi)
+        delta_A = avg_abs_diff_matrix(old_A, A)
+        delta_B = avg_abs_diff_matrix(old_B, B)
+
+        delta_pi_hist.append(delta_pi)
+        delta_A_hist.append(delta_A)
+        delta_B_hist.append(delta_B)
+
         # ----- 5. LOG-LIKELIHOOD BERECHNEN UND KONVERGENZ PRÜFEN -----
         log_prob = 0.0
         for t in range(T):
@@ -165,12 +200,15 @@ def baum_welch(A, B, pi, observations, max_iters=100):
         log_prob = -log_prob
 
         # Abbruch, wenn sich Log-Likelihood nicht mehr verbessert
-        if log_prob <= old_log_prob + 1e-6:
+        if log_prob <= old_log_prob + 1e-2:
             break
+
+        #print(f"Iteration {iter}: \nA = {A}, \nB = {B}, \npi = {pi}")
 
         old_log_prob = log_prob
 
-    return A, B
+    # return histories as well for plotting
+    return A, B, delta_pi_hist, delta_A_hist, delta_B_hist
 
 
 def print_matrix(mat):
@@ -188,22 +226,45 @@ def print_matrix(mat):
 
 # ------------------ MAIN PROGRAM ------------------
 def main():
-    A = read_matrix()          # transition matrix
-    B = read_matrix()          # emission matrix
-    pi_matrix = read_matrix()  # initial state distribution (1 x N)
-    pi = pi_matrix[0]
-
     # Read observations: "T o1 o2 ... oT"
     parts = input().strip().split()
     T = int(parts[0])
     observations = list(map(int, parts[1:]))
 
-    # Train HMM with Baum-Welch
-    A_est, B_est = baum_welch(A, B, pi, observations)
+    A = [
+        [0.7, 0.05, 0.25],
+        [0.13, 0.72, 0.15],
+        [0.14, 0.26, 0.6]
+    ]
 
-    # Output only A and B
+    B = [
+        [0.7, 0.19, 0.1, 0.01],
+        [0.09, 0.43, 0.32, 0.16],
+        [0.05, 0.17, 0.19, 0.59]
+    ]
+
+    pi = [0.3, 0.2, 0.5]
+
+    # Train HMM with Baum-Welch
+    A_est, B_est, d_pi, d_A, d_B = baum_welch(A, B, pi, observations)
+
+    # Output only A and B (for the assignment)
     print_matrix(A_est)
     print_matrix(B_est)
+
+    # ---- plot convergence (for your report / local run) ----
+    iters = range(1, len(d_pi) + 1)
+
+    plt.figure()
+    plt.plot(iters, d_pi, label="Δπ (avg abs diff)")
+    plt.plot(iters, d_A, label="ΔA (avg abs diff)")
+    plt.plot(iters, d_B, label="ΔB (avg abs diff)")
+    plt.xlabel("Iteration")
+    plt.ylabel("Average parameter change")
+    plt.title("Convergence of Baum–Welch parameters")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 
 if __name__ == "__main__":
